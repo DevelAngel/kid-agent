@@ -22,6 +22,7 @@ rmcp = { workspace = true, features = [
   "reqwest",
   "transport-streamable-http-client-reqwest",
 ] }
+sd-listen-fds = "0.2.0"
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
