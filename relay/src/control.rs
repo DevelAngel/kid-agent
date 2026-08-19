@@ -5,8 +5,10 @@
 //! newline-terminated.
 
 use anyhow::{Context, Result, bail};
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::future;
 use std::os::unix::net::UnixListener as StdUnixListener;
 use std::path::Path;
 use std::str::FromStr;
@@ -31,17 +33,10 @@ pub(crate) enum Response {
 }
 
 /// Commands understood over the control socket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub(crate) enum ControlCommand {
+    #[display("report")]
     Report,
-}
-
-impl ControlCommand {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Report => "report",
-        }
-    }
 }
 
 impl FromStr for ControlCommand {
@@ -108,7 +103,7 @@ impl ControlServer {
 pub(crate) async fn handle_connection<F, Fut>(stream: UnixStream, handle_report: F)
 where
     F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    Fut: future::Future<Output = Result<()>>,
 {
     if let Err(err) = handle_connection_inner(stream, handle_report).await {
         tracing::error!(?err, "control connection failed");
@@ -118,7 +113,7 @@ where
 async fn handle_connection_inner<F, Fut>(stream: UnixStream, handle_report: F) -> Result<()>
 where
     F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    Fut: future::Future<Output = Result<()>>,
 {
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
@@ -165,7 +160,7 @@ pub(crate) async fn trigger_report(path: &Path, resource: &str) -> Result<()> {
     let mut reader = BufReader::new(read_half);
 
     let request = Request {
-        command: ControlCommand::Report.as_str().to_owned(),
+        command: ControlCommand::Report.to_string(),
         resource: resource.to_owned(),
     };
     let mut payload = serde_json::to_string(&request).context("failed to encode request")?;
