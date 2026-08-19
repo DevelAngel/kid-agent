@@ -2,6 +2,7 @@ mod cli;
 mod control;
 
 use crate::cli::{Cli, Command, DaemonArgs};
+use crate::control::ControlServer;
 use matrix_bot::Bot;
 use matrix_sampling::{LLM, Message as LLMMessage};
 
@@ -21,6 +22,7 @@ use secrecy::ExposeSecret;
 use serde::Deserialize;
 
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 struct Agent {
@@ -42,11 +44,10 @@ async fn main() -> Result<()> {
         .with_writer(io::stderr)
         .init();
 
+    let control_socket = cli.global.control_socket;
     match cli.command {
-        Command::Daemon(args) => run_daemon(*args).await,
-        Command::Trigger(args) => {
-            control::trigger_report(&args.control_socket, &args.resource).await
-        }
+        Command::Serve(args) => run_daemon(*args, control_socket).await,
+        Command::Trigger(args) => control::trigger_report(&control_socket, &args.resource).await,
     }
 }
 
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
 /// sync loop and the control-socket accept loop concurrently until either
 /// one fails. Both share the same `Bot`/`Agent`, so only one Matrix device
 /// is ever in use.
-async fn run_daemon(args: DaemonArgs) -> Result<()> {
+async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
     let api_key = None; // unsupported yet
     let agent = Agent::new(&args.llm_api_base_url, api_key);
 
@@ -69,15 +70,12 @@ async fn run_daemon(args: DaemonArgs) -> Result<()> {
     )
     .await?;
 
-    let listener = control::bind(&args.control_socket)?;
-    tracing::info!(path = %args.control_socket.display(), "control socket ready");
+    let server = ControlServer::bind(&control_socket)?;
+    tracing::info!(path = %control_socket.display(), "control socket ready");
 
     let control_loop = async {
         loop {
-            let (stream, _addr) = listener
-                .accept()
-                .await
-                .context("failed to accept control connection")?;
+            let stream = server.accept().await?;
             let bot = bot.clone();
             let agent = &agent;
             let args = &args;
