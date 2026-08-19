@@ -7,39 +7,45 @@ use matrix_sdk::ruma::events::room::message::{
     TextMessageEventContent,
 };
 use matrix_sdk::ruma::{OwnedRoomId, RoomId, RoomOrAliasId};
-use strum::EnumString;
+use strum::{EnumIter, EnumString, IntoEnumIterator};
 
 /// Chat commands recognized via a `!`-prefix (e.g. `!help`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, EnumIter, derive_more::Display)]
 #[strum(ascii_case_insensitive)]
 enum ChatCommand {
+    #[display("- `!help` — show this list")]
     Help,
 }
 
-/// Parses a `!`-prefixed, case-insensitive room message body into a
-/// [`ChatCommand`].
-fn parse_chat_command(body: &str) -> Option<ChatCommand> {
-    body.trim().strip_prefix('!')?.parse().ok()
+impl ChatCommand {
+    /// Parses a `!`-prefixed, case-insensitive room message body into a
+    /// [`ChatCommand`].
+    fn from_message(body: &str) -> Option<Self> {
+        body.trim().strip_prefix('!')?.parse().ok()
+    }
 }
 
-/// The text sent back for `!help`. Grows as more commands are added.
+/// Lists all commands via their [`ChatCommand`] `Display` impl - grows
+/// automatically as variants are added.
 fn help_text() -> String {
-    indoc::indoc! {"
-        **Available commands**
-
-        - `!help` — show this list
-    "}
-    .to_owned()
+    let commands = ChatCommand::iter().map(|command| command.to_string()).collect::<Vec<_>>();
+    format!("**Available commands**\n\n{}\n", commands.join("\n"))
 }
 
-/// Runs an indefinite Matrix sync loop, dispatching chat commands. Returns
-/// only on an unrecoverable sync error.
-pub async fn run_sync_loop(client: &Client) -> Result<()> {
-    client.add_event_handler(on_room_message);
-    client
-        .sync(SyncSettings::default())
-        .await
-        .context("matrix sync loop terminated")
+/// Extension trait adding chat-command dispatch to a Matrix [`Client`].
+pub(crate) trait ChatCommandLoop {
+    /// Runs an indefinite sync loop, dispatching chat commands parsed from
+    /// text messages. Returns only on an unrecoverable sync error.
+    async fn run_sync_loop(&self) -> Result<()>;
+}
+
+impl ChatCommandLoop for Client {
+    async fn run_sync_loop(&self) -> Result<()> {
+        self.add_event_handler(on_room_message);
+        self.sync(SyncSettings::default())
+            .await
+            .context("matrix sync loop terminated")
+    }
 }
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
@@ -53,7 +59,7 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         "received room message",
     );
 
-    let Some(command) = parse_chat_command(&text.body) else {
+    let Some(command) = ChatCommand::from_message(&text.body) else {
         return;
     };
 
@@ -121,33 +127,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_chat_command_recognizes_help() {
-        assert_eq!(parse_chat_command("!help"), Some(ChatCommand::Help));
+    fn from_message_recognizes_help() {
+        assert_eq!(ChatCommand::from_message("!help"), Some(ChatCommand::Help));
     }
 
     #[test]
-    fn parse_chat_command_is_case_insensitive() {
-        assert_eq!(parse_chat_command("!HeLp"), Some(ChatCommand::Help));
+    fn from_message_is_case_insensitive() {
+        assert_eq!(ChatCommand::from_message("!HeLp"), Some(ChatCommand::Help));
     }
 
     #[test]
-    fn parse_chat_command_ignores_plain_chat() {
-        assert_eq!(parse_chat_command("hello there"), None);
+    fn from_message_ignores_plain_chat() {
+        assert_eq!(ChatCommand::from_message("hello there"), None);
     }
 
     #[test]
-    fn parse_chat_command_requires_the_prefix() {
-        assert_eq!(parse_chat_command("help"), None);
+    fn from_message_requires_the_prefix() {
+        assert_eq!(ChatCommand::from_message("help"), None);
     }
 
     #[test]
-    fn parse_chat_command_rejects_unknown_commands() {
-        assert_eq!(parse_chat_command("!report daily"), None);
+    fn from_message_rejects_unknown_commands() {
+        assert_eq!(ChatCommand::from_message("!report daily"), None);
     }
 
     #[test]
-    fn parse_chat_command_trims_surrounding_whitespace() {
-        assert_eq!(parse_chat_command("  !help  "), Some(ChatCommand::Help));
+    fn from_message_trims_surrounding_whitespace() {
+        assert_eq!(ChatCommand::from_message("  !help  "), Some(ChatCommand::Help));
     }
 
 
