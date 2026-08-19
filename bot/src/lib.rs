@@ -38,4 +38,10 @@ impl Bot {
     pub async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()> {
         messaging::send_message(&self.client, room_id_or_alias, text).await
     }
+
+    /// Runs an indefinite Matrix sync loop, handling incoming chat events.
+    /// See [`messaging::run_sync_loop`] for details.
+    pub async fn run_sync_loop(&self) -> Result<()> {
+        messaging::run_sync_loop(&self.client).await
+    }
 }
