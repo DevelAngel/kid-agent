@@ -1,44 +1,49 @@
 # systemd units
 
-Replaces the old timer-spawns-a-fresh-process setup: `matrix-relay
-serve` now runs continuously as a single Matrix device, and report
-triggers reach it over a control socket instead of starting a second
-client.
+## The idea
 
-## Install
+`matrix-relay` used to be a one-shot process: a timer woke it up, it
+logged into Matrix, sent one report, and exited. That worked fine
+until the bot also needed to listen for chat messages continuously -
+a persistent Matrix login living alongside a timer that spawns a
+second, independent login on the same account isn't viable. Matrix
+ties encryption and trust to a device, and one account is only
+supposed to run one device for this bot; two logins fighting over the
+same account's crypto store leads to session churn and trust resets.
 
-```sh
-sudo cp matrix-relay.socket matrix-relay.service \
-        matrix-relay-report.service matrix-relay-report.timer \
-        /etc/systemd/system/
+So the shape had to change: one long-running process
+(`matrix-relay.service`, running `matrix-relay serve`) owns the single
+Matrix device for the lifetime of the deployment. It syncs chat
+continuously and also listens on a Unix control socket. The timer no
+longer starts a new `matrix-relay` process at all - it runs a tiny
+`matrix-relay trigger` client that just writes a request to that
+socket and reads back the result. The daemon does the actual work;
+the timer just knocks.
 
-sudo mkdir -p /etc/matrix-relay
-sudo cp matrix-relay.env.example /etc/matrix-relay/matrix-relay.env
-sudo chmod 0600 /etc/matrix-relay/matrix-relay.env
-# edit /etc/matrix-relay/matrix-relay.env with real values
+The socket itself is owned by `matrix-relay.socket`, not by the
+daemon. systemd creates `/run/matrix-relay/control.sock` with the
+right permissions before the daemon ever starts, and hands the
+already-bound socket over via socket activation. That sidesteps a
+startup race (the timer firing before the daemon has gotten around to
+binding its own socket) and means a crashed-and-restarting daemon
+doesn't need to recreate the socket file at all - it just reconnects
+to the same fd on the next start.
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now matrix-relay.socket
-sudo systemctl enable --now matrix-relay.service
-sudo systemctl enable --now matrix-relay-report.timer
-```
+## Report types and resource URIs
 
-`matrix-relay.socket` owns creation and permissions of
-`/run/matrix-relay/control.sock`; `matrix-relay.service` adopts it via
-socket activation (`LISTEN_FDS`) rather than binding it itself.
+Each report the daemon can send corresponds to a resource URI read
+from the "generate message" MCP server, following a `kid://report/<name>`
+scheme - e.g. `kid://report/daily` for the daily report. A given
+report type is just a `matrix-relay-report*.service`/`.timer` pair
+whose `ExecStart` names that resource and whose `OnCalendar` sets its
+own schedule; the daily pair shipped here is the template for adding
+weekly, quick-wins, or backlog reports alongside it, each under its
+own unit name and cadence.
 
-## Multiple report types
+## Config
 
-`matrix-relay-report.service`/`.timer` as shipped here trigger the
-daily report on a fixed schedule. For additional report types (e.g.
-weekly, quick wins, backlog), copy the pair under new names and adjust
-`--resource` and `OnCalendar`, e.g.:
+`matrix-relay.service` reads its Matrix credentials and MCP endpoint
+config from an environment file (`matrix-relay.env.example` here is
+the template) rather than inline in the unit, since those values are
+secrets and differ per deployment.
 
-```sh
-sudo cp matrix-relay-report.service /etc/systemd/system/matrix-relay-report-weekly.service
-sudo cp matrix-relay-report.timer /etc/systemd/system/matrix-relay-report-weekly.timer
-# edit the .service's ExecStart to use --resource kid://weekly_report
-# edit the .timer's OnCalendar for the desired schedule
-sudo systemctl daemon-reload
-sudo systemctl enable --now matrix-relay-report-weekly.timer
-```
