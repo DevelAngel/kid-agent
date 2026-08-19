@@ -7,14 +7,36 @@ use matrix_sdk::ruma::events::room::message::{
     TextMessageEventContent,
 };
 use matrix_sdk::ruma::{OwnedRoomId, RoomId, RoomOrAliasId};
+use strum::EnumString;
 
-/// Runs an indefinite Matrix sync loop, logging every text message received
-/// in a joined room. Returns only on an unrecoverable sync error; a caller
-/// wanting graceful shutdown should race this future against a cancellation
-/// signal (e.g. via `tokio::select!`).
+/// Chat commands recognized in room messages, triggered via a `!`-prefix
+/// (e.g. `!help`). Unrecognized text is ordinary chat and ignored.
 ///
-/// Command parsing/execution isn't implemented yet - this only proves the
-/// continuous-sync plumbing and gives us a hook to build on.
+/// No authorization gate (room/sender allowlist) exists yet - anyone in a
+/// joined room can currently trigger these. That's a known gap to close
+/// before this handles anything more consequential than `!help`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
+#[strum(ascii_case_insensitive)]
+enum ChatCommand {
+    Help,
+}
+
+/// Parses a room message body into a [`ChatCommand`], if it is one.
+/// Commands are `!`-prefixed and case-insensitive; anything else (including
+/// bare command names without the prefix) is treated as ordinary chat.
+fn parse_chat_command(body: &str) -> Option<ChatCommand> {
+    body.trim().strip_prefix('!')?.parse().ok()
+}
+
+/// The text sent back for `!help`. Grows as more commands are added.
+fn help_text() -> String {
+    "**Available commands**\n\n- `!help` — show this list\n".to_owned()
+}
+
+/// Runs an indefinite Matrix sync loop, parsing and executing chat commands
+/// from text messages received in a joined room. Returns only on an
+/// unrecoverable sync error; a caller wanting graceful shutdown should race
+/// this future against a cancellation signal (e.g. via `tokio::select!`).
 pub async fn run_sync_loop(client: &Client) -> Result<()> {
     client.add_event_handler(on_room_message);
     client
@@ -33,6 +55,18 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         body = %text.body,
         "received room message",
     );
+
+    let Some(command) = parse_chat_command(&text.body) else {
+        return;
+    };
+
+    match command {
+        ChatCommand::Help => {
+            if let Err(err) = room.send(build_content(&help_text())).await {
+                tracing::error!(?err, room_id = %room.room_id(), "failed to send help text");
+            }
+        }
+    }
 }
 
 /// Sends `text` (interpreted as Markdown) as a single message to
@@ -88,6 +122,37 @@ fn build_content(text: &str) -> RoomMessageEventContent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_chat_command_recognizes_help() {
+        assert_eq!(parse_chat_command("!help"), Some(ChatCommand::Help));
+    }
+
+    #[test]
+    fn parse_chat_command_is_case_insensitive() {
+        assert_eq!(parse_chat_command("!HeLp"), Some(ChatCommand::Help));
+    }
+
+    #[test]
+    fn parse_chat_command_ignores_plain_chat() {
+        assert_eq!(parse_chat_command("hello there"), None);
+    }
+
+    #[test]
+    fn parse_chat_command_requires_the_prefix() {
+        assert_eq!(parse_chat_command("help"), None);
+    }
+
+    #[test]
+    fn parse_chat_command_rejects_unknown_commands() {
+        assert_eq!(parse_chat_command("!report daily"), None);
+    }
+
+    #[test]
+    fn parse_chat_command_trims_surrounding_whitespace() {
+        assert_eq!(parse_chat_command("  !help  "), Some(ChatCommand::Help));
+    }
+
 
     fn as_text(content: &RoomMessageEventContent) -> &TextMessageEventContent {
         match &content.msgtype {
