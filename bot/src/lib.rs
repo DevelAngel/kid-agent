@@ -37,7 +37,7 @@ impl Bot {
 
     /// Sends `text` (Markdown) to the given room ID or alias.
     pub async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()> {
-        messaging::send_message(&self.client, room_id_or_alias, text).await
+        self.client.send_message(room_id_or_alias, text).await
     }
 
     /// Runs an indefinite Matrix sync loop, handling incoming chat events.
