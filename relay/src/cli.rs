@@ -13,9 +13,30 @@ pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Command,
 
+    #[command(flatten)]
+    pub global: GlobalArgs,
+
     // verbose and quiet flag handling
     #[command(flatten)]
     pub verbosity: Verbosity<InfoLevel>,
+}
+
+/// Args accepted regardless of subcommand, since both `serve` and `trigger`
+/// need to agree on the same control socket path.
+#[derive(Debug, clap::Args)]
+pub(crate) struct GlobalArgs {
+    /// Path of the Unix control socket used to trigger reports on a running
+    /// daemon. For `serve`, ignored if a socket has already been passed in
+    /// by systemd socket activation (LISTEN_FDS) - that path always takes
+    /// precedence, since systemd then owns the socket's lifetime and
+    /// permissions.
+    #[arg(
+        long,
+        env = "MATRIX_CONTROL_SOCKET",
+        default_value = "/run/matrix-relay/control.sock",
+        global = true
+    )]
+    pub control_socket: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
@@ -23,7 +44,7 @@ pub(crate) enum Command {
     /// Runs continuously: syncs Matrix chat events and listens on a Unix
     /// control socket for report triggers, keeping a single logged-in
     /// Matrix device for both.
-    Daemon(Box<DaemonArgs>),
+    Serve(Box<DaemonArgs>),
 
     /// Sends a report-trigger request to an already running daemon's
     /// control socket, then exits. Meant to be invoked by a systemd
@@ -84,33 +105,13 @@ pub(crate) struct DaemonArgs {
     /// OpenAI-compatible API Base URL (e.g. "http://localhost:8000/v1")
     #[arg(long, env = "MATRIX_LLM_API_BASE_URL")]
     pub llm_api_base_url: String,
-
-    /// Path of the Unix control socket to listen on for report triggers.
-    /// Ignored if a socket has already been passed in by systemd socket
-    /// activation (LISTEN_FDS) - that path always takes precedence, since
-    /// systemd then owns the socket's lifetime and permissions.
-    #[arg(
-        long,
-        env = "MATRIX_CONTROL_SOCKET",
-        default_value = "/run/matrix-relay/control.sock"
-    )]
-    pub control_socket: PathBuf,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct TriggerArgs {
-    /// Path of the running daemon's Unix control socket to connect to.
-    #[arg(
-        long,
-        env = "MATRIX_CONTROL_SOCKET",
-        default_value = "/run/matrix-relay/control.sock"
-    )]
-    pub control_socket: PathBuf,
-
     /// URI of the resource to read on the "generate message" MCP server,
     /// e.g. "kid://daily_report". Not fixed yet, hence configurable rather
     /// than hardcoded.
     #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
     pub resource: String,
 }
-
