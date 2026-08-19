@@ -22,6 +22,7 @@ axum = "0.8.9"
 clap = { version = "4.6.4", features = ["derive", "env"] }
 clap-verbosity-flag = { version = "3.0.4", features = ["tracing"] }
 derive_more = { version = "2.1.1", features = ["display"] }
+indoc = "2.0.7"
 matrix-sdk = { version = "0.18.0", features = ["anyhow", "bundled-sqlite", "markdown"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rmcp = "3.0.1"

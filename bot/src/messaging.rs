@@ -9,34 +9,31 @@ use matrix_sdk::ruma::events::room::message::{
 use matrix_sdk::ruma::{OwnedRoomId, RoomId, RoomOrAliasId};
 use strum::EnumString;
 
-/// Chat commands recognized in room messages, triggered via a `!`-prefix
-/// (e.g. `!help`). Unrecognized text is ordinary chat and ignored.
-///
-/// No authorization gate (room/sender allowlist) exists yet - anyone in a
-/// joined room can currently trigger these. That's a known gap to close
-/// before this handles anything more consequential than `!help`.
+/// Chat commands recognized via a `!`-prefix (e.g. `!help`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
 #[strum(ascii_case_insensitive)]
 enum ChatCommand {
     Help,
 }
 
-/// Parses a room message body into a [`ChatCommand`], if it is one.
-/// Commands are `!`-prefixed and case-insensitive; anything else (including
-/// bare command names without the prefix) is treated as ordinary chat.
+/// Parses a `!`-prefixed, case-insensitive room message body into a
+/// [`ChatCommand`].
 fn parse_chat_command(body: &str) -> Option<ChatCommand> {
     body.trim().strip_prefix('!')?.parse().ok()
 }
 
 /// The text sent back for `!help`. Grows as more commands are added.
 fn help_text() -> String {
-    "**Available commands**\n\n- `!help` — show this list\n".to_owned()
+    indoc::indoc! {"
+        **Available commands**
+
+        - `!help` — show this list
+    "}
+    .to_owned()
 }
 
-/// Runs an indefinite Matrix sync loop, parsing and executing chat commands
-/// from text messages received in a joined room. Returns only on an
-/// unrecoverable sync error; a caller wanting graceful shutdown should race
-/// this future against a cancellation signal (e.g. via `tokio::select!`).
+/// Runs an indefinite Matrix sync loop, dispatching chat commands. Returns
+/// only on an unrecoverable sync error.
 pub async fn run_sync_loop(client: &Client) -> Result<()> {
     client.add_event_handler(on_room_message);
     client
