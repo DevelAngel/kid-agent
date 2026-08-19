@@ -40,10 +40,7 @@ pub(crate) trait ChatCommandLoop {
     async fn run_sync_loop(&self) -> Result<()>;
 
     /// Sends `text` (interpreted as Markdown) as a single message to
-    /// `room_id_or_alias`, then returns. Callers that only need to send
-    /// one-off messages don't need a continuous sync loop or event handler -
-    /// just enough of a sync to have the room and device state needed to
-    /// send (encrypted) messages.
+    /// `room_id_or_alias`, then returns.
     async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()>;
 }
 
