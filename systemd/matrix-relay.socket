@@ -1,0 +1,9 @@
+[Unit]
+Description=Control socket for matrix-relay daemon
+
+[Socket]
+ListenStream=/run/matrix-relay/control.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

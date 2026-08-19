@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodically trigger a matrix-relay report
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
