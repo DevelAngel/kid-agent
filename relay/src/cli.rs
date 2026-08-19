@@ -110,7 +110,7 @@ pub(crate) struct DaemonArgs {
 #[derive(Debug, clap::Args)]
 pub(crate) struct TriggerArgs {
     /// URI of the resource to read on the "generate message" MCP server,
-    /// e.g. "kid://daily_report". Not fixed yet, hence configurable rather
+    /// e.g. "kid://report/daily". Not fixed yet, hence configurable rather
     /// than hardcoded.
     #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
     pub resource: String,
