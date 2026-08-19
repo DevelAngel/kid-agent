@@ -1,15 +1,38 @@
 pub use clap::Parser;
+use clap::Subcommand;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use secrecy::SecretString;
 use std::path::PathBuf;
 
-/// One-shot MCP client: fetches a message from a "generate message" MCP
-/// server, logs in as a Matrix client (or restores a persisted session),
-/// sends the message, then exits. Meant to be started by a systemd oneshot
-/// service on a timer, rather than run continuously.
+/// Matrix relay: either runs as a long-lived daemon (chat sync + control
+/// socket) or, as a lightweight client, triggers a report on an already
+/// running daemon over that control socket.
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
 pub(crate) struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+
+    // verbose and quiet flag handling
+    #[command(flatten)]
+    pub verbosity: Verbosity<InfoLevel>,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum Command {
+    /// Runs continuously: syncs Matrix chat events and listens on a Unix
+    /// control socket for report triggers, keeping a single logged-in
+    /// Matrix device for both.
+    Daemon(Box<DaemonArgs>),
+
+    /// Sends a report-trigger request to an already running daemon's
+    /// control socket, then exits. Meant to be invoked by a systemd
+    /// oneshot service on a timer.
+    Trigger(TriggerArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct DaemonArgs {
     /// Matrix Homeserver, e.g. "matrix.example.com".
     #[arg(long, env = "MATRIX_HOMESERVER")]
     pub homeserver: String,
@@ -44,16 +67,9 @@ pub(crate) struct Cli {
     pub room_id: String,
 
     /// URL of the "generate message" MCP server's Streamable HTTP endpoint
-    /// (e.g. "http://127.0.0.1:8001/mcp"), used to fetch the message text
-    /// that gets sent to `room_id`.
+    /// (e.g. "http://127.0.0.1:8001/mcp"), used to fetch report text.
     #[arg(long, env = "MATRIX_GENERATE_URL")]
     pub generate_url: String,
-
-    /// URI of the resource to read on the "generate message" MCP server,
-    /// e.g. "kid://daily_report". Not fixed yet, hence configurable rather
-    /// than hardcoded.
-    #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
-    pub generate_resource: String,
 
     /// OAuth 2.1 client ID used to authenticate with the "generate message"
     /// MCP server via the client credentials grant.
@@ -69,7 +85,32 @@ pub(crate) struct Cli {
     #[arg(long, env = "MATRIX_LLM_API_BASE_URL")]
     pub llm_api_base_url: String,
 
-    // verbose and quiet flag handling
-    #[command(flatten)]
-    pub verbosity: Verbosity<InfoLevel>,
+    /// Path of the Unix control socket to listen on for report triggers.
+    /// Ignored if a socket has already been passed in by systemd socket
+    /// activation (LISTEN_FDS) - that path always takes precedence, since
+    /// systemd then owns the socket's lifetime and permissions.
+    #[arg(
+        long,
+        env = "MATRIX_CONTROL_SOCKET",
+        default_value = "/run/matrix-relay/control.sock"
+    )]
+    pub control_socket: PathBuf,
 }
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct TriggerArgs {
+    /// Path of the running daemon's Unix control socket to connect to.
+    #[arg(
+        long,
+        env = "MATRIX_CONTROL_SOCKET",
+        default_value = "/run/matrix-relay/control.sock"
+    )]
+    pub control_socket: PathBuf,
+
+    /// URI of the resource to read on the "generate message" MCP server,
+    /// e.g. "kid://daily_report". Not fixed yet, hence configurable rather
+    /// than hardcoded.
+    #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
+    pub resource: String,
+}
+

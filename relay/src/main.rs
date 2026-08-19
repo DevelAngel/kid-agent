@@ -1,6 +1,7 @@
 mod cli;
+mod control;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Command, DaemonArgs};
 use matrix_bot::Bot;
 use matrix_sampling::{LLM, Message as LLMMessage};
 
@@ -41,22 +42,89 @@ async fn main() -> Result<()> {
         .with_writer(io::stderr)
         .init();
 
-    let api_key = None; // unsupported yet
-    let agent = Agent::new(&cli.llm_api_base_url, api_key);
+    match cli.command {
+        Command::Daemon(args) => run_daemon(*args).await,
+        Command::Trigger(args) => {
+            control::trigger_report(&args.control_socket, &args.resource).await
+        }
+    }
+}
 
-    tracing::info!("fetch resource");
-    let text = generate_message(
-        &cli.generate_url,
-        &cli.generate_resource,
-        &cli.generate_client_id,
-        cli.generate_client_secret.expose_secret(),
+/// Runs the daemon: connects once as the Matrix bot, then drives the chat
+/// sync loop and the control-socket accept loop concurrently until either
+/// one fails. Both share the same `Bot`/`Agent`, so only one Matrix device
+/// is ever in use.
+async fn run_daemon(args: DaemonArgs) -> Result<()> {
+    let api_key = None; // unsupported yet
+    let agent = Agent::new(&args.llm_api_base_url, api_key);
+
+    tracing::info!("connect to matrix bot account");
+    let bot = Bot::connect(
+        &args.homeserver,
+        &args.devicename,
+        &args.username,
+        args.password.expose_secret(),
+        args.recovery_key.expose_secret(),
+        &args.state_dir,
     )
     .await?;
 
-    let text = if cli.generate_resource.contains("weekly") {
+    let listener = control::bind(&args.control_socket)?;
+    tracing::info!(path = %args.control_socket.display(), "control socket ready");
+
+    let control_loop = async {
+        loop {
+            let (stream, _addr) = listener
+                .accept()
+                .await
+                .context("failed to accept control connection")?;
+            let bot = bot.clone();
+            let agent = &agent;
+            let args = &args;
+            control::handle_connection(stream, |resource| async move {
+                dispatch_report(&bot, agent, args, &resource).await
+            })
+            .await;
+        }
+    };
+
+    tokio::select! {
+        result = bot.run_sync_loop() => result.context("chat sync loop ended"),
+        result = control_loop => result,
+    }
+}
+
+/// Generates the report text for `resource` and sends it to the configured
+/// room. Shared by every control-socket "report" request.
+async fn dispatch_report(
+    bot: &Bot,
+    agent: &Agent,
+    args: &DaemonArgs,
+    resource: &str,
+) -> Result<()> {
+    tracing::info!(resource, "fetch resource");
+    let text = generate_message(
+        &args.generate_url,
+        resource,
+        &args.generate_client_id,
+        args.generate_client_secret.expose_secret(),
+    )
+    .await?;
+
+    let text = render_report(agent, resource, &text).await;
+
+    tracing::info!("send matrix bot message");
+    bot.send_message(&args.room_id, &text).await
+}
+
+/// Adds the report's Zelda-voiced framing on top of the raw `text` fetched
+/// from the "generate message" MCP resource, picking a title/intro/outro
+/// style based on `resource`'s name.
+async fn render_report(agent: &Agent, resource: &str, text: &str) -> String {
+    if resource.contains("weekly") {
         tracing::info!("request zelda review");
         let title = "Weekly Review";
-        match ZeldaReview::request(&agent, title, &text).await {
+        match ZeldaReview::request(agent, title, text).await {
             Ok(ZeldaReview(review)) => {
                 format!("**{title}**\n\n{review}\n\n**Changelog**\n\n{text}\n")
             }
@@ -65,10 +133,10 @@ async fn main() -> Result<()> {
                 format!("**{title}** — **Changelog**\n\n{text}\n")
             }
         }
-    } else if cli.generate_resource.contains("daily") {
+    } else if resource.contains("daily") {
         tracing::info!("request Zelda commentary from LLM");
         let title = "Daily Report";
-        match ZeldaCommentary::request(&agent, title, &text).await {
+        match ZeldaCommentary::request(agent, title, text).await {
             Ok(ZeldaCommentary { intro, outro }) => {
                 format!("**{title}**\n\n{intro}\n\n{text}\n\n{outro}\n")
             }
@@ -78,9 +146,9 @@ async fn main() -> Result<()> {
                 format!("**{title}**\n\n{intro}\n\n{text}\n")
             }
         }
-    } else if cli.generate_resource.contains("quick") {
+    } else if resource.contains("quick") {
         let title = "Quick Wins";
-        match ZeldaCommentary::request(&agent, title, &text).await {
+        match ZeldaCommentary::request(agent, title, text).await {
             Ok(ZeldaCommentary { intro, outro }) => {
                 format!("**{title}**\n\n{intro}\n\n{text}\n\n{outro}\n")
             }
@@ -92,7 +160,7 @@ async fn main() -> Result<()> {
         }
     } else {
         let title = "Backlog";
-        match ZeldaCommentary::request(&agent, title, &text).await {
+        match ZeldaCommentary::request(agent, title, text).await {
             Ok(ZeldaCommentary { intro, outro }) => {
                 format!("**{title}**\n\n{intro}\n\n{text}\n\n{outro}\n")
             }
@@ -102,23 +170,7 @@ async fn main() -> Result<()> {
                 format!("**{title}**\n\n{intro}\n\n{text}\n")
             }
         }
-    };
-
-    tracing::info!("conntext to matrix bot account");
-    let bot = Bot::connect(
-        &cli.homeserver,
-        &cli.devicename,
-        &cli.username,
-        cli.password.expose_secret(),
-        cli.recovery_key.expose_secret(),
-        &cli.state_dir,
-    )
-    .await?;
-
-    tracing::info!("send matrix bot message");
-    bot.send_message(&cli.room_id, &text).await?;
-    tracing::info!("done, exiting");
-    Ok(())
+    }
 }
 
 /// Connects as an MCP client to the "generate message" server at
