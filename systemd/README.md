@@ -2,23 +2,20 @@
 
 ## The idea
 
-`matrix-relay` used to be a one-shot process: a timer woke it up, it
-logged into Matrix, sent one report, and exited. That worked fine
-until the bot also needed to listen for chat messages continuously -
-a persistent Matrix login living alongside a timer that spawns a
-second, independent login on the same account isn't viable. Matrix
-ties encryption and trust to a device, and one account is only
-supposed to run one device for this bot; two logins fighting over the
-same account's crypto store leads to session churn and trust resets.
+Matrix ties encryption and trust to a device, and this bot is only
+meant to run a single device for its account - two logins on the same
+account fighting over the same crypto store leads to session churn
+and trust resets. Since the bot needs both a continuous chat listener
+and periodic report sending, both have to happen from the same
+process, under the same login.
 
-So the shape had to change: one long-running process
-(`matrix-relay.service`, running `matrix-relay serve`) owns the single
-Matrix device for the lifetime of the deployment. It syncs chat
-continuously and also listens on a Unix control socket. The timer no
-longer starts a new `matrix-relay` process at all - it runs a tiny
-`matrix-relay trigger` client that just writes a request to that
-socket and reads back the result. The daemon does the actual work;
-the timer just knocks.
+`matrix-relay.service` (running `matrix-relay serve`) is that single
+long-running process: it owns the Matrix device for the lifetime of
+the deployment, syncs chat continuously, and listens on a Unix
+control socket. Report triggers don't start a new `matrix-relay`
+process - the timer instead runs a tiny `matrix-relay trigger` client
+that writes a request to that socket and reads back the result. The
+daemon does the actual work; the timer just knocks.
 
 The socket itself is owned by `matrix-relay.socket`, not by the
 daemon. systemd creates `/run/matrix-relay/control.sock` with the
