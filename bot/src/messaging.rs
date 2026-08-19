@@ -32,11 +32,19 @@ fn help_text() -> String {
     format!("**Available commands**\n\n{}\n", commands.join("\n"))
 }
 
-/// Extension trait adding chat-command dispatch to a Matrix [`Client`].
+/// Extension trait adding chat-command dispatch and message sending to a
+/// Matrix [`Client`].
 pub(crate) trait ChatCommandLoop {
     /// Runs an indefinite sync loop, dispatching chat commands parsed from
     /// text messages. Returns only on an unrecoverable sync error.
     async fn run_sync_loop(&self) -> Result<()>;
+
+    /// Sends `text` (interpreted as Markdown) as a single message to
+    /// `room_id_or_alias`, then returns. Callers that only need to send
+    /// one-off messages don't need a continuous sync loop or event handler -
+    /// just enough of a sync to have the room and device state needed to
+    /// send (encrypted) messages.
+    async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()>;
 }
 
 impl ChatCommandLoop for Client {
@@ -45,6 +53,39 @@ impl ChatCommandLoop for Client {
         self.sync(SyncSettings::default())
             .await
             .context("matrix sync loop terminated")
+    }
+
+    async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()> {
+        let room_or_alias_id = RoomOrAliasId::parse(room_id_or_alias)
+            .with_context(|| format!("'{room_id_or_alias}' is neither a valid room ID nor alias"))?;
+
+        self.sync_once(SyncSettings::default())
+            .await
+            .context("failed to sync")?;
+
+        // A room alias (e.g. "#foo:example.com") isn't a room ID and can't
+        // be looked up with `get_room` directly - it has to be resolved to
+        // the actual room ID via the server first.
+        let room_id: OwnedRoomId = match <&RoomId>::try_from(&*room_or_alias_id) {
+            Ok(room_id) => room_id.to_owned(),
+            Err(alias) => {
+                self.resolve_room_alias(alias)
+                    .await
+                    .with_context(|| format!("failed to resolve room alias {alias}"))?
+                    .room_id
+            }
+        };
+
+        let room = self
+            .get_room(&room_id)
+            .with_context(|| format!("not a member of room {room_id}, or room is unknown"))?;
+
+        room.send(RoomMessageEventContent::markdown(text))
+            .await
+            .context("failed to send message")?;
+        tracing::info!("message sent to {room_id}");
+
+        Ok(())
     }
 }
 
@@ -65,61 +106,28 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
 
     match command {
         ChatCommand::Help => {
-            if let Err(err) = room.send(build_content(&help_text())).await {
+            let content = RoomMessageEventContent::markdown(&help_text());
+            if let Err(err) = room.send(content).await {
                 tracing::error!(?err, room_id = %room.room_id(), "failed to send help text");
             }
         }
     }
 }
 
-/// Sends `text` (interpreted as Markdown) as a single message to
-/// `room_id_or_alias`, then returns. Callers that only need to send one-off
-/// messages don't need a continuous sync loop or event handler - just enough
-/// of a sync to have the room and device state needed to send (encrypted)
-/// messages.
-pub async fn send_message(client: &Client, room_id_or_alias: &str, text: &str) -> Result<()> {
-    let room_or_alias_id = RoomOrAliasId::parse(room_id_or_alias)
-        .with_context(|| format!("'{room_id_or_alias}' is neither a valid room ID nor alias"))?;
-
-    client
-        .sync_once(SyncSettings::default())
-        .await
-        .context("failed to sync")?;
-
-    // A room alias (e.g. "#foo:example.com") isn't a room ID and can't be
-    // looked up with `get_room` directly - it has to be resolved to the
-    // actual room ID via the server first.
-    let room_id: OwnedRoomId = match <&RoomId>::try_from(&*room_or_alias_id) {
-        Ok(room_id) => room_id.to_owned(),
-        Err(alias) => {
-            client
-                .resolve_room_alias(alias)
-                .await
-                .with_context(|| format!("failed to resolve room alias {alias}"))?
-                .room_id
-        }
-    };
-
-    let room = client
-        .get_room(&room_id)
-        .with_context(|| format!("not a member of room {room_id}, or room is unknown"))?;
-
-    room.send(build_content(text))
-        .await
-        .context("failed to send message")?;
-    tracing::info!("message sent to {room_id}");
-
-    Ok(())
+/// Extension trait constructing message content from Markdown, rendering it
+/// into an HTML `formatted_body` alongside the plain-text fallback. If the
+/// source contains no Markdown formatting, `formatted` stays `None` and
+/// clients just show the plain text.
+trait MarkdownContent {
+    fn markdown(text: &str) -> Self;
 }
 
-/// Builds the message content for `text`, rendering it as Markdown into an
-/// HTML `formatted_body` alongside the plain-text fallback. If `text`
-/// contains no Markdown formatting, `formatted` stays `None` and clients
-/// just show the plain text.
-fn build_content(text: &str) -> RoomMessageEventContent {
-    let mut text_content = TextMessageEventContent::plain(text);
-    text_content.formatted = FormattedBody::markdown(text);
-    RoomMessageEventContent::new(MessageType::Text(text_content))
+impl MarkdownContent for RoomMessageEventContent {
+    fn markdown(text: &str) -> Self {
+        let mut text_content = TextMessageEventContent::plain(text);
+        text_content.formatted = FormattedBody::markdown(text);
+        Self::new(MessageType::Text(text_content))
+    }
 }
 
 #[cfg(test)]
@@ -155,8 +163,6 @@ mod tests {
     fn from_message_trims_surrounding_whitespace() {
         assert_eq!(ChatCommand::from_message("  !help  "), Some(ChatCommand::Help));
     }
-
-
     fn as_text(content: &RoomMessageEventContent) -> &TextMessageEventContent {
         match &content.msgtype {
             MessageType::Text(text) => text,
@@ -165,20 +171,20 @@ mod tests {
     }
 
     #[test]
-    fn build_content_keeps_plain_text_as_body() {
-        let content = build_content("just plain text, no markdown");
+    fn markdown_content_keeps_plain_text_as_body() {
+        let content = RoomMessageEventContent::markdown("just plain text, no markdown");
         assert_eq!(as_text(&content).body, "just plain text, no markdown");
     }
 
     #[test]
-    fn build_content_without_markdown_has_no_formatted_body() {
-        let content = build_content("just plain text, no markdown");
+    fn markdown_content_without_markdown_has_no_formatted_body() {
+        let content = RoomMessageEventContent::markdown("just plain text, no markdown");
         assert!(as_text(&content).formatted.is_none());
     }
 
     #[test]
-    fn build_content_with_markdown_renders_html() {
-        let content = build_content("**bold** and _italic_");
+    fn markdown_content_with_markdown_renders_html() {
+        let content = RoomMessageEventContent::markdown("**bold** and _italic_");
         let formatted = as_text(&content)
             .formatted
             .as_ref()
