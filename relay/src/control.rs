@@ -6,13 +6,17 @@
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::os::unix::net::UnixListener as StdUnixListener;
 use std::path::Path;
+use std::str::FromStr;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-/// A request sent over the control socket. `command` is a vestige of the
-/// eventual chat-command dispatch sharing this same channel; only
-/// `"report"` is handled today.
+/// A request sent over the control socket. `command` stays a raw string on
+/// the wire (parsed into [`ControlCommand`] on receipt) since this is also
+/// the vestige of the eventual chat-command dispatch sharing this same
+/// channel.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Request {
     pub command: String,
@@ -26,31 +30,76 @@ pub(crate) enum Response {
     Error { message: String },
 }
 
-/// Binds the control socket, preferring a systemd socket-activation FD
-/// (`LISTEN_FDS`/`LISTEN_PID`) if one was passed in - systemd then owns the
-/// socket file's creation, permissions, and cleanup. Falls back to binding
-/// `path` directly, e.g. for local runs without systemd.
-pub(crate) fn bind(path: &Path) -> Result<UnixListener> {
-    let fds = sd_listen_fds::get().context("failed to inspect systemd LISTEN_FDS")?;
-    if let Some((_name, fd)) = fds.into_iter().next() {
-        let std_listener = std::os::unix::net::UnixListener::from(fd);
-        std_listener
-            .set_nonblocking(true)
-            .context("failed to set socket-activated listener non-blocking")?;
-        return UnixListener::from_std(std_listener)
-            .context("failed to adopt systemd-provided control socket");
+/// Commands understood over the control socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ControlCommand {
+    Report,
+}
+
+impl ControlCommand {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Report => "report",
+        }
+    }
+}
+
+impl FromStr for ControlCommand {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "report" => Ok(Self::Report),
+            other => bail!("unknown command '{other}'"),
+        }
+    }
+}
+
+/// Listens on the daemon's control socket, accepting connections that
+/// trigger reports.
+pub(crate) struct ControlServer {
+    listener: UnixListener,
+}
+
+impl ControlServer {
+    /// Binds the control socket, preferring a systemd socket-activation FD
+    /// (`LISTEN_FDS`/`LISTEN_PID`) if one was passed in - systemd then owns
+    /// the socket file's creation, permissions, and cleanup. Falls back to
+    /// binding `path` directly, e.g. for local runs without systemd.
+    pub(crate) fn bind(path: &Path) -> Result<Self> {
+        let fds = sd_listen_fds::get().context("failed to inspect systemd LISTEN_FDS")?;
+        if let Some((_name, fd)) = fds.into_iter().next() {
+            let std_listener = StdUnixListener::from(fd);
+            std_listener
+                .set_nonblocking(true)
+                .context("failed to set socket-activated listener non-blocking")?;
+            let listener = UnixListener::from_std(std_listener)
+                .context("failed to adopt systemd-provided control socket")?;
+            return Ok(Self { listener });
+        }
+
+        if path.exists() {
+            fs::remove_file(path)
+                .with_context(|| format!("failed to remove stale socket at {}", path.display()))?;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let listener = UnixListener::bind(path)
+            .with_context(|| format!("failed to bind control socket at {}", path.display()))?;
+        Ok(Self { listener })
     }
 
-    if path.exists() {
-        std::fs::remove_file(path)
-            .with_context(|| format!("failed to remove stale socket at {}", path.display()))?;
+    /// Accepts the next incoming control connection.
+    pub(crate) async fn accept(&self) -> Result<UnixStream> {
+        let (stream, _addr) = self
+            .listener
+            .accept()
+            .await
+            .context("failed to accept control connection")?;
+        Ok(stream)
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    UnixListener::bind(path)
-        .with_context(|| format!("failed to bind control socket at {}", path.display()))
 }
 
 /// Reads one request, invokes `handle_report`, writes back the response.
@@ -83,17 +132,16 @@ where
     let request: Request =
         serde_json::from_str(line.trim_end()).context("failed to parse control request")?;
 
-    let response = if request.command == "report" {
-        match handle_report(request.resource).await {
+    let response = match request.command.parse::<ControlCommand>() {
+        Ok(ControlCommand::Report) => match handle_report(request.resource).await {
             Ok(()) => Response::Ok,
             Err(err) => Response::Error {
                 message: err.to_string(),
             },
-        }
-    } else {
-        Response::Error {
-            message: format!("unknown command '{}'", request.command),
-        }
+        },
+        Err(err) => Response::Error {
+            message: err.to_string(),
+        },
     };
 
     let mut payload = serde_json::to_string(&response).context("failed to encode response")?;
@@ -117,7 +165,7 @@ pub(crate) async fn trigger_report(path: &Path, resource: &str) -> Result<()> {
     let mut reader = BufReader::new(read_half);
 
     let request = Request {
-        command: "report".to_owned(),
+        command: ControlCommand::Report.as_str().to_owned(),
         resource: resource.to_owned(),
     };
     let mut payload = serde_json::to_string(&request).context("failed to encode request")?;
