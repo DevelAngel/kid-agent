@@ -40,7 +40,6 @@ impl Bot {
     }
 
     /// Runs an indefinite Matrix sync loop, handling incoming chat events.
-    /// See [`messaging::run_sync_loop`] for details.
     pub async fn run_sync_loop(&self) -> Result<()> {
         messaging::run_sync_loop(&self.client).await
     }
