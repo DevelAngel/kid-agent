@@ -1,10 +1,39 @@
 use anyhow::{Context, Result};
 use matrix_sdk::Client;
 use matrix_sdk::config::SyncSettings;
+use matrix_sdk::room::Room;
 use matrix_sdk::ruma::events::room::message::{
-    FormattedBody, MessageType, RoomMessageEventContent, TextMessageEventContent,
+    FormattedBody, MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+    TextMessageEventContent,
 };
 use matrix_sdk::ruma::{OwnedRoomId, RoomId, RoomOrAliasId};
+
+/// Runs an indefinite Matrix sync loop, logging every text message received
+/// in a joined room. Returns only on an unrecoverable sync error; a caller
+/// wanting graceful shutdown should race this future against a cancellation
+/// signal (e.g. via `tokio::select!`).
+///
+/// Command parsing/execution isn't implemented yet - this only proves the
+/// continuous-sync plumbing and gives us a hook to build on.
+pub async fn run_sync_loop(client: &Client) -> Result<()> {
+    client.add_event_handler(on_room_message);
+    client
+        .sync(SyncSettings::default())
+        .await
+        .context("matrix sync loop terminated")
+}
+
+async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
+    let MessageType::Text(text) = &event.content.msgtype else {
+        return;
+    };
+    tracing::info!(
+        room_id = %room.room_id(),
+        sender = %event.sender,
+        body = %text.body,
+        "received room message",
+    );
+}
 
 /// Sends `text` (interpreted as Markdown) as a single message to
 /// `room_id_or_alias`, then returns. Callers that only need to send one-off
