@@ -7,6 +7,8 @@ use matrix_sdk::ruma::events::room::message::{
     TextMessageEventContent,
 };
 use matrix_sdk::ruma::{OwnedRoomId, RoomId, RoomOrAliasId};
+use std::future::Future;
+use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoEnumIterator};
 
 /// Chat commands recognized via a `!`-prefix (e.g. `!help`).
@@ -15,6 +17,8 @@ use strum::{EnumIter, EnumString, IntoEnumIterator};
 enum ChatCommand {
     #[display("- `!help` — show this list")]
     Help,
+    #[display("- `!tools` — list available MCP tools")]
+    Tools,
 }
 
 impl ChatCommand {
@@ -36,8 +40,14 @@ fn help_text() -> String {
 /// Matrix [`Client`].
 pub(crate) trait ChatCommandLoop {
     /// Runs an indefinite sync loop, dispatching chat commands parsed from
-    /// text messages. Returns only on an unrecoverable sync error.
-    async fn run_sync_loop(&self) -> Result<()>;
+    /// text messages. `list_tools` is invoked on `!tools` and must resolve
+    /// to Markdown-ready text listing the available MCP tools - kept
+    /// pluggable so this crate stays unaware of any MCP client details.
+    /// Returns only on an unrecoverable sync error.
+    async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String>> + Send + 'static;
 
     /// Sends `text` (interpreted as Markdown) as a single message to
     /// `room_id_or_alias`, then returns.
@@ -45,8 +55,16 @@ pub(crate) trait ChatCommandLoop {
 }
 
 impl ChatCommandLoop for Client {
-    async fn run_sync_loop(&self) -> Result<()> {
-        self.add_event_handler(on_room_message);
+    async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String>> + Send + 'static,
+    {
+        let list_tools = Arc::new(list_tools);
+        self.add_event_handler(move |event: OriginalSyncRoomMessageEvent, room: Room| {
+            let list_tools = Arc::clone(&list_tools);
+            async move { on_room_message(event, room, list_tools).await }
+        });
         self.sync(SyncSettings::default())
             .await
             .context("matrix sync loop terminated")
@@ -86,7 +104,11 @@ impl ChatCommandLoop for Client {
     }
 }
 
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
+async fn on_room_message<F, Fut>(event: OriginalSyncRoomMessageEvent, room: Room, list_tools: Arc<F>)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<String>>,
+{
     let MessageType::Text(text) = &event.content.msgtype else {
         return;
     };
@@ -102,12 +124,21 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     };
 
     match command {
-        ChatCommand::Help => {
-            let content = RoomMessageEventContent::markdown(&help_text());
-            if let Err(err) = room.send(content).await {
-                tracing::error!(?err, room_id = %room.room_id(), "failed to send help text");
-            }
-        }
+        ChatCommand::Help => send_markdown(&room, &help_text()).await,
+        ChatCommand::Tools => match list_tools().await {
+            Ok(text) => send_markdown(&room, &text).await,
+            Err(err) => tracing::error!(?err, room_id = %room.room_id(), "failed to list MCP tools"),
+        },
+    }
+}
+
+/// Sends `text` as a Markdown message to `room`, logging (rather than
+/// propagating) any send failure - a broken reply must not take down the
+/// sync loop.
+async fn send_markdown(room: &Room, text: &str) {
+    let content = RoomMessageEventContent::markdown(text);
+    if let Err(err) = room.send(content).await {
+        tracing::error!(?err, room_id = %room.room_id(), "failed to send message");
     }
 }
 
@@ -134,6 +165,11 @@ mod tests {
     #[test]
     fn from_message_recognizes_help() {
         assert_eq!(ChatCommand::from_message("!help"), Some(ChatCommand::Help));
+    }
+
+    #[test]
+    fn from_message_recognizes_tools() {
+        assert_eq!(ChatCommand::from_message("!tools"), Some(ChatCommand::Tools));
     }
 
     #[test]
