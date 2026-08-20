@@ -1968,6 +1968,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "kid-agent"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap-verbosity-flag",
+ "derive_more 2.1.1",
+ "indoc",
+ "matrix-bot",
+ "matrix-sampling",
+ "rand 0.10.2",
+ "reqwest",
+ "rmcp",
+ "sd-listen-fds",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "konst"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2138,29 +2161,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "matrix-relay"
-version = "0.4.1"
-dependencies = [
- "anyhow",
- "clap",
- "clap-verbosity-flag",
- "derive_more 2.1.1",
- "indoc",
- "matrix-bot",
- "matrix-sampling",
- "rand 0.10.2",
- "reqwest",
- "rmcp",
- "sd-listen-fds",
- "secrecy",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

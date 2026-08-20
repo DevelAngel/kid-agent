@@ -33,7 +33,7 @@ pub(crate) struct GlobalArgs {
     #[arg(
         long,
         env = "MATRIX_CONTROL_SOCKET",
-        default_value = "/run/matrix-relay/control.sock",
+        default_value = "/run/kid-agent/control.sock",
         global = true
     )]
     pub control_socket: PathBuf,

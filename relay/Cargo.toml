@@ -1,5 +1,5 @@
 [package]
-name = "matrix-relay"
+name = "kid-agent"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

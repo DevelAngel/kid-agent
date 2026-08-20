@@ -1,5 +1,5 @@
 [Unit]
-Description=Periodically trigger a matrix-relay report
+Description=Periodically trigger a kid-agent report
 
 [Timer]
 OnCalendar=*-*-* 07:00:00
