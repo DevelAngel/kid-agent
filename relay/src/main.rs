@@ -16,6 +16,7 @@ use serde::Deserialize;
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 struct Agent {
     llm: LLM,
@@ -50,6 +51,9 @@ async fn main() -> Result<()> {
 async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
     let api_key = None; // unsupported yet
     let agent = Agent::new(&args.llm_api_base_url, api_key);
+    // Arc'd so the `!tools` handler below can own a `'static` copy for the
+    // sync loop while `control_loop` keeps borrowing the original.
+    let args = Arc::new(args);
 
     tracing::info!("connect to matrix bot account");
     let bot = Bot::connect(
@@ -78,8 +82,21 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
         }
     };
 
+    let list_tools_args = Arc::clone(&args);
+    let list_tools = move || {
+        let args = Arc::clone(&list_tools_args);
+        async move {
+            mcp::list_tools_markdown(
+                &args.generate_url,
+                &args.generate_client_id,
+                args.generate_client_secret.expose_secret(),
+            )
+            .await
+        }
+    };
+
     tokio::select! {
-        result = bot.run_sync_loop() => result.context("chat sync loop ended"),
+        result = bot.run_sync_loop(list_tools) => result.context("chat sync loop ended"),
         result = control_loop => result,
     }
 }

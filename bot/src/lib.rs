@@ -5,6 +5,7 @@ mod session;
 use anyhow::Result;
 use matrix_sdk::Client;
 use messaging::ChatCommandLoop as _;
+use std::future::Future;
 use std::path::Path;
 
 /// A logged-in, cross-signed Matrix client.
@@ -41,7 +42,13 @@ impl Bot {
     }
 
     /// Runs an indefinite Matrix sync loop, handling incoming chat events.
-    pub async fn run_sync_loop(&self) -> Result<()> {
-        self.client.run_sync_loop().await
+    /// `list_tools` backs the `!tools` command - see
+    /// [`messaging::ChatCommandLoop::run_sync_loop`] for details.
+    pub async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String>> + Send + 'static,
+    {
+        self.client.run_sync_loop(list_tools).await
     }
 }
