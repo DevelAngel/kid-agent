@@ -41,23 +41,9 @@ fn help_text() -> String {
 /// Extension trait adding chat-command dispatch and message sending to a
 /// Matrix [`Client`].
 pub(crate) trait ChatCommandLoop {
-    /// Runs an indefinite sync loop, registering a room-message event
-    /// handler on the underlying [`Client`] and then blocking on
-    /// [`Client::sync`] until the connection drops or errors.
-    ///
-    /// Every incoming room message is parsed as a [`ChatCommand`] and
-    /// dispatched:
-    /// - `!help` replies with the command list, generated from
-    ///   [`ChatCommand`]'s `Display` impl.
-    /// - `!tools` calls `list_tools` and replies with its Markdown result.
-    /// - `!resources` calls `list_resources` and replies with its Markdown
-    ///   result.
-    ///
-    /// `list_tools` and `list_resources` are injected rather than hardcoded
-    /// so this crate stays MCP-agnostic - the caller decides how to reach
-    /// an MCP server and format the reply. A failed closure call is logged
-    /// and otherwise swallowed: one bad `!tools`/`!resources` invocation
-    /// must not take down the sync loop for the whole room.
+    /// Runs an indefinite sync loop, dispatching chat commands. `list_tools`
+    /// backs `!tools`, `list_resources` backs `!resources`; both kept
+    /// pluggable so this crate stays MCP-agnostic.
     async fn run_sync_loop<F1, Fut1, F2, Fut2>(
         &self,
         list_tools: F1,
