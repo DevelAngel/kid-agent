@@ -39,18 +39,14 @@ fn help_text() -> String {
 /// Extension trait adding chat-command dispatch and message sending to a
 /// Matrix [`Client`].
 pub(crate) trait ChatCommandLoop {
-    /// Runs an indefinite sync loop, dispatching chat commands parsed from
-    /// text messages. `list_tools` is invoked on `!tools` and must resolve
-    /// to Markdown-ready text listing the available MCP tools - kept
-    /// pluggable so this crate stays unaware of any MCP client details.
-    /// Returns only on an unrecoverable sync error.
+    /// Runs an indefinite sync loop, dispatching chat commands. `list_tools`
+    /// backs `!tools`; kept pluggable so this crate stays MCP-agnostic.
     async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<String>> + Send + 'static;
 
-    /// Sends `text` (interpreted as Markdown) as a single message to
-    /// `room_id_or_alias`, then returns.
+    /// Sends `text` (Markdown) as a single message to `room_id_or_alias`.
     async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()>;
 }
 
@@ -132,9 +128,8 @@ where
     }
 }
 
-/// Sends `text` as a Markdown message to `room`, logging (rather than
-/// propagating) any send failure - a broken reply must not take down the
-/// sync loop.
+/// Sends `text` as Markdown to `room`; logs rather than propagates send
+/// failures, so a broken reply can't take down the sync loop.
 async fn send_markdown(room: &Room, text: &str) {
     let content = RoomMessageEventContent::markdown(text);
     if let Err(err) = room.send(content).await {

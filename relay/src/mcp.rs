@@ -13,9 +13,8 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use rmcp::ServiceExt;
 use std::time::Duration;
 
-/// Connects as an MCP client to `generate_url` (Streamable HTTP),
-/// authenticating via the OAuth 2.1 client credentials grant. The caller
-/// owns the returned session and is responsible for cancelling it.
+/// Connects as an MCP client to `generate_url`. Caller must cancel the
+/// returned session when done.
 pub(crate) async fn connect(
     generate_url: &str,
     client_id: &str,

@@ -41,9 +41,7 @@ impl Bot {
         self.client.send_message(room_id_or_alias, text).await
     }
 
-    /// Runs an indefinite Matrix sync loop, handling incoming chat events.
-    /// `list_tools` backs the `!tools` command - see
-    /// [`messaging::ChatCommandLoop::run_sync_loop`] for details.
+    /// Runs an indefinite Matrix sync loop. `list_tools` backs `!tools`.
     pub async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
