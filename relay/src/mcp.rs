@@ -85,3 +85,30 @@ pub(crate) async fn list_tools_markdown(
         .collect::<Vec<_>>();
     Ok(format!("**Available tools**\n\n{}\n", tools.join("\n")))
 }
+
+/// Lists the resources exposed by the "generate message" MCP server,
+/// formatted as Markdown ready to send as a chat reply.
+pub(crate) async fn list_resources_markdown(
+    generate_url: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<String> {
+    let client = connect(generate_url, client_id, client_secret).await?;
+    let result = client.list_resources(None).await.context("failed to list MCP resources");
+    let _ = client.cancel().await;
+    let result = result?;
+
+    if result.resources.is_empty() {
+        return Ok("**Available resources**\n\nno resources available\n".to_owned());
+    }
+
+    let resources = result
+        .resources
+        .iter()
+        .map(|resource| match &resource.description {
+            Some(description) => format!("- `{}` — {description}", resource.uri),
+            None => format!("- `{}`", resource.uri),
+        })
+        .collect::<Vec<_>>();
+    Ok(format!("**Available resources**\n\n{}\n", resources.join("\n")))
+}

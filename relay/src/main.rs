@@ -95,8 +95,21 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
         }
     };
 
+    let list_resources_args = Arc::clone(&args);
+    let list_resources = move || {
+        let args = Arc::clone(&list_resources_args);
+        async move {
+            mcp::list_resources_markdown(
+                &args.generate_url,
+                &args.generate_client_id,
+                args.generate_client_secret.expose_secret(),
+            )
+            .await
+        }
+    };
+
     tokio::select! {
-        result = bot.run_sync_loop(list_tools) => result.context("chat sync loop ended"),
+        result = bot.run_sync_loop(list_tools, list_resources) => result.context("chat sync loop ended"),
         result = control_loop => result,
     }
 }
