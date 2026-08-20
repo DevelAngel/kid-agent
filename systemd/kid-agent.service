@@ -1,0 +1,14 @@
+[Unit]
+Description=KID Agent Daemon
+Requires=kid-agent.socket
+After=network-online.target kid-agent.socket
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kid-agent serve
+Restart=on-failure
+EnvironmentFile=/etc/kid-agent/kid-agent.env
+
+[Install]
+WantedBy=multi-user.target

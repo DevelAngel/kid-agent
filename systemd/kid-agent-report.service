@@ -1,0 +1,8 @@
+[Unit]
+Description=Trigger a kid-agent report via the control socket
+Requisite=kid-agent.socket
+After=kid-agent.socket
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kid-agent trigger --resource kid://report/daily

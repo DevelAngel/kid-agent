@@ -1,8 +1,0 @@
-[Unit]
-Description=Trigger a matrix-relay report via the control socket
-Requisite=matrix-relay.socket
-After=matrix-relay.socket
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/matrix-relay trigger --resource kid://report/daily

@@ -1,0 +1,9 @@
+[Unit]
+Description=Control socket for kid-agent daemon
+
+[Socket]
+ListenStream=/run/kid-agent/control.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

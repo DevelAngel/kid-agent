@@ -51,7 +51,7 @@ pub(crate) async fn connect(
 
     let client_info = ClientInfo::new(
         ClientCapabilities::default(),
-        Implementation::new("matrix-relay", env!("CARGO_PKG_VERSION")),
+        Implementation::new("kid-agent", env!("CARGO_PKG_VERSION")),
     );
     client_info
         .serve(transport)
