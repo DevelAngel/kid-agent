@@ -41,12 +41,19 @@ impl Bot {
         self.client.send_message(room_id_or_alias, text).await
     }
 
-    /// Runs an indefinite Matrix sync loop. `list_tools` backs `!tools`.
-    pub async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    /// Runs an indefinite Matrix sync loop. `list_tools` backs `!tools`,
+    /// `list_resources` backs `!resources`.
+    pub async fn run_sync_loop<F1, Fut1, F2, Fut2>(
+        &self,
+        list_tools: F1,
+        list_resources: F2,
+    ) -> Result<()>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<String>> + Send + 'static,
+        F1: Fn() -> Fut1 + Send + Sync + 'static,
+        Fut1: Future<Output = Result<String>> + Send + 'static,
+        F2: Fn() -> Fut2 + Send + Sync + 'static,
+        Fut2: Future<Output = Result<String>> + Send + 'static,
     {
-        self.client.run_sync_loop(list_tools).await
+        self.client.run_sync_loop(list_tools, list_resources).await
     }
 }

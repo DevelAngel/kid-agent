@@ -19,6 +19,8 @@ enum ChatCommand {
     Help,
     #[display("- `!tools` — list available MCP tools")]
     Tools,
+    #[display("- `!resources` — list available MCP resources")]
+    Resources,
 }
 
 impl ChatCommand {
@@ -40,31 +42,48 @@ fn help_text() -> String {
 /// Matrix [`Client`].
 pub(crate) trait ChatCommandLoop {
     /// Runs an indefinite sync loop, dispatching chat commands. `list_tools`
-    /// backs `!tools`; kept pluggable so this crate stays MCP-agnostic.
-    async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    /// backs `!tools`, `list_resources` backs `!resources`; both kept
+    /// pluggable so this crate stays MCP-agnostic.
+    async fn run_sync_loop<F1, Fut1, F2, Fut2>(
+        &self,
+        list_tools: F1,
+        list_resources: F2,
+    ) -> Result<()>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<String>> + Send + 'static;
+        F1: Fn() -> Fut1 + Send + Sync + 'static,
+        Fut1: Future<Output = Result<String>> + Send + 'static,
+        F2: Fn() -> Fut2 + Send + Sync + 'static,
+        Fut2: Future<Output = Result<String>> + Send + 'static;
 
     /// Sends `text` (Markdown) as a single message to `room_id_or_alias`.
     async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()>;
 }
 
 impl ChatCommandLoop for Client {
-    async fn run_sync_loop<F, Fut>(&self, list_tools: F) -> Result<()>
+    async fn run_sync_loop<F1, Fut1, F2, Fut2>(
+        &self,
+        list_tools: F1,
+        list_resources: F2,
+    ) -> Result<()>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<String>> + Send + 'static,
+        F1: Fn() -> Fut1 + Send + Sync + 'static,
+        Fut1: Future<Output = Result<String>> + Send + 'static,
+        F2: Fn() -> Fut2 + Send + Sync + 'static,
+        Fut2: Future<Output = Result<String>> + Send + 'static,
     {
         let list_tools = Arc::new(list_tools);
+        let list_resources = Arc::new(list_resources);
         self.add_event_handler(move |event: OriginalSyncRoomMessageEvent, room: Room| {
             let list_tools = Arc::clone(&list_tools);
-            async move { on_room_message(event, room, list_tools).await }
+            let list_resources = Arc::clone(&list_resources);
+            async move { on_room_message(event, room, list_tools, list_resources).await }
         });
         self.sync(SyncSettings::default())
             .await
             .context("matrix sync loop terminated")
     }
+
+
 
     async fn send_message(&self, room_id_or_alias: &str, text: &str) -> Result<()> {
         let room_or_alias_id = RoomOrAliasId::parse(room_id_or_alias)
@@ -100,10 +119,16 @@ impl ChatCommandLoop for Client {
     }
 }
 
-async fn on_room_message<F, Fut>(event: OriginalSyncRoomMessageEvent, room: Room, list_tools: Arc<F>)
-where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Result<String>>,
+async fn on_room_message<F1, Fut1, F2, Fut2>(
+    event: OriginalSyncRoomMessageEvent,
+    room: Room,
+    list_tools: Arc<F1>,
+    list_resources: Arc<F2>,
+) where
+    F1: Fn() -> Fut1,
+    Fut1: Future<Output = Result<String>>,
+    F2: Fn() -> Fut2,
+    Fut2: Future<Output = Result<String>>,
 {
     let MessageType::Text(text) = &event.content.msgtype else {
         return;
@@ -125,8 +150,16 @@ where
             Ok(text) => send_markdown(&room, &text).await,
             Err(err) => tracing::error!(?err, room_id = %room.room_id(), "failed to list MCP tools"),
         },
+        ChatCommand::Resources => match list_resources().await {
+            Ok(text) => send_markdown(&room, &text).await,
+            Err(err) => {
+                tracing::error!(?err, room_id = %room.room_id(), "failed to list MCP resources")
+            }
+        },
     }
 }
+
+
 
 /// Sends `text` as Markdown to `room`; logs rather than propagates send
 /// failures, so a broken reply can't take down the sync loop.
@@ -165,6 +198,11 @@ mod tests {
     #[test]
     fn from_message_recognizes_tools() {
         assert_eq!(ChatCommand::from_message("!tools"), Some(ChatCommand::Tools));
+    }
+
+    #[test]
+    fn from_message_recognizes_resources() {
+        assert_eq!(ChatCommand::from_message("!resources"), Some(ChatCommand::Resources));
     }
 
     #[test]
