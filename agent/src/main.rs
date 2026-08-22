@@ -59,12 +59,12 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
 
     tracing::info!("connect to matrix bot account");
     let bot = Bot::connect(
-        &args.homeserver,
-        &args.devicename,
-        &args.username,
-        args.password.expose_secret(),
-        args.recovery_key.expose_secret(),
-        &args.state_dir,
+        &args.matrix.homeserver,
+        &args.matrix.devicename,
+        &args.matrix.username,
+        args.matrix.password.expose_secret(),
+        args.matrix.recovery_key.expose_secret(),
+        &args.matrix.state_dir,
     )
     .await?;
 
@@ -89,9 +89,9 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
         let args = Arc::clone(&list_tools_args);
         async move {
             mcp::list_tools_markdown(
-                &args.generate_url,
-                &args.generate_client_id,
-                args.generate_client_secret.expose_secret(),
+                &args.mcp.url,
+                &args.mcp.client_id,
+                args.mcp.client_secret.expose_secret(),
             )
             .await
         }
@@ -113,13 +113,13 @@ async fn dispatch_report(
     resource: &str,
     room_id: Option<&str>,
 ) -> Result<()> {
-    let room_id = room_id.unwrap_or(&args.room_id);
+    let room_id = room_id.unwrap_or(&args.matrix.room_id);
     tracing::info!(resource, room_id, "fetch resource");
     let text = generate_message(
-        &args.generate_url,
+        &args.mcp.url,
         resource,
-        &args.generate_client_id,
-        args.generate_client_secret.expose_secret(),
+        &args.mcp.client_id,
+        args.mcp.client_secret.expose_secret(),
     )
     .await?;
 
