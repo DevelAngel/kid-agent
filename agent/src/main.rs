@@ -41,7 +41,12 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Serve(args) => run_daemon(*args, control_socket).await,
         Command::Trigger(args) => {
-            control::trigger_report(&control_socket, &args.resource, args.room_id.as_deref()).await
+            control::trigger_report(
+                &control_socket,
+                &args.mcp.resource,
+                args.matrix.room_id.as_deref(),
+            )
+            .await
         }
     }
 }

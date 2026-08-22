@@ -123,12 +123,26 @@ pub(crate) struct McpArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct TriggerArgs {
+    #[command(flatten)]
+    pub mcp: McpTriggerArgs,
+
+    #[command(flatten)]
+    pub matrix: MatrixTriggerArgs,
+}
+
+/// MCP-specific args for `trigger`.
+#[derive(Debug, clap::Args)]
+pub(crate) struct McpTriggerArgs {
     /// URI of the resource to read on the "generate message" MCP server,
     /// e.g. "kid://report/daily". Not fixed yet, hence configurable rather
     /// than hardcoded.
     #[arg(long, env = "KID_AGENT_MCP_RESOURCE")]
     pub resource: String,
+}
 
+/// Matrix-specific args for `trigger`.
+#[derive(Debug, clap::Args)]
+pub(crate) struct MatrixTriggerArgs {
     /// Room to send this report to, overriding the daemon's default room
     /// for this trigger only: either a room ID or a room alias.
     #[arg(long, env = "KID_AGENT_MATRIX_ROOM_ID")]
