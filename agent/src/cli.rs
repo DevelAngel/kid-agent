@@ -32,7 +32,7 @@ pub(crate) struct GlobalArgs {
     /// permissions.
     #[arg(
         long,
-        env = "MATRIX_CONTROL_SOCKET",
+        env = "KID_AGENT_CONTROL_SOCKET",
         default_value = "/run/kid-agent/control.sock",
         global = true
     )]
@@ -55,55 +55,55 @@ pub(crate) enum Command {
 #[derive(Debug, clap::Args)]
 pub(crate) struct DaemonArgs {
     /// Matrix Homeserver, e.g. "matrix.example.com".
-    #[arg(long, env = "MATRIX_HOMESERVER")]
+    #[arg(long, env = "KID_AGENT_HOMESERVER")]
     pub homeserver: String,
 
     /// Device name
-    #[arg(long, env = "MATRIX_DEVICE_NAME")]
+    #[arg(long, env = "KID_AGENT_DEVICE_NAME")]
     pub devicename: String,
 
     /// User name
-    #[arg(long, env = "MATRIX_USERNAME")]
+    #[arg(long, env = "KID_AGENT_USERNAME")]
     pub username: String,
 
     /// Password of user
-    #[arg(long, env = "MATRIX_PASSWORD", hide_env_values(true))]
+    #[arg(long, env = "KID_AGENT_PASSWORD", hide_env_values(true))]
     pub password: SecretString,
 
     /// Recovery key used to recover secrets (and thereby cross-sign this
     /// device) after login, so the bot's device is trusted without manual
     /// verification.
-    #[arg(long, env = "MATRIX_RECOVERY_KEY", hide_env_values(true))]
+    #[arg(long, env = "KID_AGENT_RECOVERY_KEY", hide_env_values(true))]
     pub recovery_key: SecretString,
 
     /// Directory used to persist the Matrix state/crypto store and the login
     /// session across restarts, so this client keeps reusing the same device
     /// instead of accumulating a new one on every run.
-    #[arg(long, env = "MATRIX_STATE_DIR", default_value = "./matrix-state")]
+    #[arg(long, env = "KID_AGENT_STATE_DIR", default_value = "./matrix-state")]
     pub state_dir: PathBuf,
 
     /// Room to send to: either a room ID (e.g. "!abcdef:example.com") or a
     /// room alias (e.g. "#room:example.com").
-    #[arg(long, env = "MATRIX_ROOM_ID")]
+    #[arg(long, env = "KID_AGENT_ROOM_ID")]
     pub room_id: String,
 
     /// URL of the "generate message" MCP server's Streamable HTTP endpoint
     /// (e.g. "http://127.0.0.1:8001/mcp"), used to fetch report text.
-    #[arg(long, env = "MATRIX_GENERATE_URL")]
+    #[arg(long, env = "KID_AGENT_GENERATE_URL")]
     pub generate_url: String,
 
     /// OAuth 2.1 client ID used to authenticate with the "generate message"
     /// MCP server via the client credentials grant.
-    #[arg(long, env = "MATRIX_GENERATE_CLIENT_ID")]
+    #[arg(long, env = "KID_AGENT_GENERATE_CLIENT_ID")]
     pub generate_client_id: String,
 
     /// OAuth 2.1 client secret used to authenticate with the "generate
     /// message" MCP server via the client credentials grant.
-    #[arg(long, env = "MATRIX_GENERATE_CLIENT_SECRET", hide_env_values(true))]
+    #[arg(long, env = "KID_AGENT_GENERATE_CLIENT_SECRET", hide_env_values(true))]
     pub generate_client_secret: SecretString,
 
     /// OpenAI-compatible API Base URL (e.g. "http://localhost:8000/v1")
-    #[arg(long, env = "MATRIX_LLM_API_BASE_URL")]
+    #[arg(long, env = "KID_AGENT_LLM_API_BASE_URL")]
     pub llm_api_base_url: String,
 }
 
@@ -112,11 +112,11 @@ pub(crate) struct TriggerArgs {
     /// URI of the resource to read on the "generate message" MCP server,
     /// e.g. "kid://report/daily". Not fixed yet, hence configurable rather
     /// than hardcoded.
-    #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
+    #[arg(long, env = "KID_AGENT_GENERATE_RESOURCE")]
     pub resource: String,
 
     /// Room to send this report to, overriding the daemon's default room
     /// for this trigger only: either a room ID or a room alias.
-    #[arg(long, env = "MATRIX_TRIGGER_ROOM_ID")]
+    #[arg(long, env = "KID_AGENT_TRIGGER_ROOM_ID")]
     pub room_id: Option<String>,
 }
