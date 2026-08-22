@@ -40,7 +40,9 @@ async fn main() -> Result<()> {
     let control_socket = cli.global.control_socket;
     match cli.command {
         Command::Serve(args) => run_daemon(*args, control_socket).await,
-        Command::Trigger(args) => control::trigger_report(&control_socket, &args.resource).await,
+        Command::Trigger(args) => {
+            control::trigger_report(&control_socket, &args.resource, args.room_id.as_deref()).await
+        }
     }
 }
 
@@ -75,8 +77,8 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
             let bot = bot.clone();
             let agent = &agent;
             let args = &args;
-            control::handle_connection(stream, |resource| async move {
-                dispatch_report(&bot, agent, args, &resource).await
+            control::handle_connection(stream, |resource, room_id| async move {
+                dispatch_report(&bot, agent, args, &resource, room_id.as_deref()).await
             })
             .await;
         }
@@ -101,15 +103,18 @@ async fn run_daemon(args: DaemonArgs, control_socket: PathBuf) -> Result<()> {
     }
 }
 
-/// Generates the report text for `resource` and sends it to the configured
-/// room. Shared by every control-socket "report" request.
+/// Generates the report text for `resource` and sends it to `room_id`, or
+/// the daemon's default room from `args` if `room_id` is `None`. Shared by
+/// every control-socket "report" request.
 async fn dispatch_report(
     bot: &Bot,
     agent: &Agent,
     args: &DaemonArgs,
     resource: &str,
+    room_id: Option<&str>,
 ) -> Result<()> {
-    tracing::info!(resource, "fetch resource");
+    let room_id = room_id.unwrap_or(&args.room_id);
+    tracing::info!(resource, room_id, "fetch resource");
     let text = generate_message(
         &args.generate_url,
         resource,
@@ -121,7 +126,7 @@ async fn dispatch_report(
     let text = render_report(agent, resource, &text).await;
 
     tracing::info!("send matrix bot message");
-    bot.send_message(&args.room_id, &text).await
+    bot.send_message(room_id, &text).await
 }
 
 /// Adds the report's Zelda-voiced framing on top of the raw `text` fetched

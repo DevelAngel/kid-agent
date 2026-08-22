@@ -23,6 +23,8 @@ use tokio::net::{UnixListener, UnixStream};
 pub(crate) struct Request {
     pub command: String,
     pub resource: String,
+    /// Overrides the daemon's default target room for this report, if set.
+    pub room_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -102,7 +104,7 @@ impl ControlServer {
 /// bad client can't take down the daemon's control loop.
 pub(crate) async fn handle_connection<F, Fut>(stream: UnixStream, handle_report: F)
 where
-    F: FnOnce(String) -> Fut,
+    F: FnOnce(String, Option<String>) -> Fut,
     Fut: future::Future<Output = Result<()>>,
 {
     if let Err(err) = handle_connection_inner(stream, handle_report).await {
@@ -112,7 +114,7 @@ where
 
 async fn handle_connection_inner<F, Fut>(stream: UnixStream, handle_report: F) -> Result<()>
 where
-    F: FnOnce(String) -> Fut,
+    F: FnOnce(String, Option<String>) -> Fut,
     Fut: future::Future<Output = Result<()>>,
 {
     let (read_half, mut write_half) = stream.into_split();
@@ -128,7 +130,7 @@ where
         serde_json::from_str(line.trim_end()).context("failed to parse control request")?;
 
     let response = match request.command.parse::<ControlCommand>() {
-        Ok(ControlCommand::Report) => match handle_report(request.resource).await {
+        Ok(ControlCommand::Report) => match handle_report(request.resource, request.room_id).await {
             Ok(()) => Response::Ok,
             Err(err) => Response::Error {
                 message: err.to_string(),
@@ -152,7 +154,7 @@ where
 /// Connects to the daemon's control socket at `path`, sends a report
 /// trigger for `resource`, and returns once the daemon confirms success or
 /// reports an error.
-pub(crate) async fn trigger_report(path: &Path, resource: &str) -> Result<()> {
+pub(crate) async fn trigger_report(path: &Path, resource: &str, room_id: Option<&str>) -> Result<()> {
     let stream = UnixStream::connect(path)
         .await
         .with_context(|| format!("failed to connect to control socket at {}", path.display()))?;
@@ -162,6 +164,7 @@ pub(crate) async fn trigger_report(path: &Path, resource: &str) -> Result<()> {
     let request = Request {
         command: ControlCommand::Report.to_string(),
         resource: resource.to_owned(),
+        room_id: room_id.map(str::to_owned),
     };
     let mut payload = serde_json::to_string(&request).context("failed to encode request")?;
     payload.push('\n');

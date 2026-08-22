@@ -114,4 +114,9 @@ pub(crate) struct TriggerArgs {
     /// than hardcoded.
     #[arg(long, env = "MATRIX_GENERATE_RESOURCE")]
     pub resource: String,
+
+    /// Room to send this report to, overriding the daemon's default room
+    /// for this trigger only: either a room ID or a room alias.
+    #[arg(long, env = "MATRIX_TRIGGER_ROOM_ID")]
+    pub room_id: Option<String>,
 }
