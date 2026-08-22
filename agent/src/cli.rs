@@ -1,5 +1,5 @@
 pub use clap::Parser;
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use secrecy::SecretString;
 use std::path::PathBuf;
@@ -23,7 +23,7 @@ pub(crate) struct Cli {
 
 /// Args accepted regardless of subcommand, since both `serve` and `trigger`
 /// need to agree on the same control socket path.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct GlobalArgs {
     /// Path of the Unix control socket used to trigger reports on a running
     /// daemon. For `serve`, ignored if a socket has already been passed in
@@ -52,7 +52,7 @@ pub(crate) enum Command {
     Trigger(TriggerArgs),
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct DaemonArgs {
     #[command(flatten)]
     pub matrix: MatrixArgs,
@@ -66,7 +66,7 @@ pub(crate) struct DaemonArgs {
 }
 
 /// Credentials and connection details for the Matrix bot account.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct MatrixArgs {
     /// Matrix Homeserver, e.g. "matrix.example.com".
     #[arg(long, env = "KID_AGENT_MATRIX_HOMESERVER")]
@@ -103,7 +103,7 @@ pub(crate) struct MatrixArgs {
 }
 
 /// Connection details for the "generate message" MCP server.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct McpArgs {
     /// URL of the "generate message" MCP server's Streamable HTTP endpoint
     /// (e.g. "http://127.0.0.1:8001/mcp"), used to fetch report text.
@@ -121,7 +121,7 @@ pub(crate) struct McpArgs {
     pub client_secret: SecretString,
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct TriggerArgs {
     #[command(flatten)]
     pub mcp: McpTriggerArgs,
@@ -131,7 +131,7 @@ pub(crate) struct TriggerArgs {
 }
 
 /// MCP-specific args for `trigger`.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct McpTriggerArgs {
     /// URI of the resource to read on the "generate message" MCP server,
     /// e.g. "kid://report/daily". Not fixed yet, hence configurable rather
@@ -141,7 +141,7 @@ pub(crate) struct McpTriggerArgs {
 }
 
 /// Matrix-specific args for `trigger`.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Args)]
 pub(crate) struct MatrixTriggerArgs {
     /// Room to send this report to, overriding the daemon's default room
     /// for this trigger only: either a room ID or a room alias.
